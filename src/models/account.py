@@ -93,8 +93,7 @@ class AbstractAccount(ABC):
         return self._account_id[-4:] if len(self._account_id) >= 4 else self._account_id
     
     def _set_balance(self, new_balance: float) -> None:
-        if new_balance < 0:
-            raise InvalidOperationError("Баланс не может быть отрицательным")
+        """Установка баланса (без проверки отрицательного значения)"""
         self._balance = new_balance
         self._updated_at = datetime.now()
     
@@ -176,6 +175,8 @@ class BankAccount(AbstractAccount):
         self._ensure_sufficient_funds(amount)
         
         new_balance = self._balance - amount
+        if new_balance < 0:
+            raise InvalidOperationError("Баланс не может быть отрицательным")
         self._set_balance(new_balance)
         
         self._transaction_history.append({
@@ -259,6 +260,8 @@ class SavingsAccount(BankAccount):
         self._ensure_sufficient_funds(amount)
         
         new_balance = self._balance - amount
+        if new_balance < 0:
+            raise InvalidOperationError("Баланс не может быть отрицательным")
         self._set_balance(new_balance)
         
         self._transaction_history.append({
@@ -345,6 +348,7 @@ class PremiumAccount(BankAccount):
             )
         
         new_balance = self._balance - amount
+        # Овердрафт разрешён — проверка отрицательного баланса не нужна
         self._set_balance(new_balance)
         
         self._transaction_history.append({

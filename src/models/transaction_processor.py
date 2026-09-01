@@ -40,10 +40,11 @@ class TransactionProcessor:
         ('EUR', 'USD'): 1.09,
     }
     
-    def __init__(self):
+    def __init__(self, risk_analyzer=None):
         self._queue = TransactionQueue()
         self._processed: List[Transaction] = []
         self._errors: List[str] = []
+        self._risk_analyzer = risk_analyzer
     
     @property
     def queue(self) -> TransactionQueue:
@@ -95,9 +96,21 @@ class TransactionProcessor:
         return accounts.get(account_id)
     
     def process_next(self, accounts: Dict[str, AbstractAccount]) -> Optional[Transaction]:
+        # Проверяем отложенные транзакции
+        self._queue.check_delayed()
+        
         transaction = self._queue.get_next()
         if not transaction:
             return None
+        
+        # Проверка риска
+        if self._risk_analyzer:
+            blocked, reasons = self._risk_analyzer.is_operation_blocked(transaction, accounts)
+            if blocked:
+                error_msg = f"Транзакция заблокирована: {', '.join(reasons)}"
+                self._errors.append(error_msg)
+                self._queue.fail(transaction, error_msg)
+                return transaction
         
         try:
             self._process_transaction(transaction, accounts)
@@ -154,7 +167,8 @@ class TransactionProcessor:
         
         amount = self._convert_currency(transaction.amount, transaction.currency, account.currency.value)
         commission = self._calculate_commission(transaction, account)
-        total = amount + commission
+        commission_converted = self._convert_currency(commission, transaction.currency, account.currency.value)
+        total = amount + commission_converted
         
         account.withdraw(total)
     
@@ -172,19 +186,30 @@ class TransactionProcessor:
         if not receiver:
             raise ValueError(f"Счёт получателя {transaction.receiver} не найден")
         
+        # Проверка статуса отправителя
         sender._check_status()
         
+        # Проверка статуса получателя
+        receiver._check_status()
+        
+        # Конвертация суммы
         amount = self._convert_currency(transaction.amount, transaction.currency, sender.currency.value)
         commission = self._calculate_commission(transaction, sender)
-        total = amount + commission
+        commission_converted = self._convert_currency(commission, transaction.currency, sender.currency.value)
+        total = amount + commission_converted
         
+        # Проверка достаточности средств
         if not isinstance(sender, PremiumAccount):
             if total > sender.balance:
                 raise InsufficientFundsError(sender.account_id, total, sender.balance)
         
+        # Все проверки пройдены → списываем
         sender.withdraw(total)
         
+        # Конвертируем для получателя
         amount_receiver = self._convert_currency(transaction.amount, transaction.currency, receiver.currency.value)
+        
+        # Зачисляем получателю
         receiver.deposit(amount_receiver)
     
     def process_all(self, accounts: Dict[str, AbstractAccount], max_transactions: Optional[int] = None) -> List[Transaction]:

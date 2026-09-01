@@ -107,8 +107,9 @@ class RiskAnalyzer:
                 reasons.append(reason)
                 risk_score += 2
         
-        if transaction.sender and accounts:
-            is_suspicious, reason = self._check_new_account(transaction.sender, accounts)
+        # Проверка новых счетов: по получателю (требование дня 5)
+        if transaction.receiver and accounts:
+            is_suspicious, reason = self._check_new_account(transaction.receiver, accounts)
             if is_suspicious:
                 reasons.append(reason)
                 risk_score += 1

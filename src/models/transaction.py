@@ -3,7 +3,7 @@
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional, List
 from dataclasses import dataclass, field
@@ -53,6 +53,7 @@ class Transaction:
     retry_count: int = 0
     max_retries: int = 3
     is_external: bool = False
+    delay_until: Optional[datetime] = None
     
     def mark_completed(self) -> None:
         self.status = TransactionStatus.COMPLETED
@@ -139,8 +140,22 @@ class TransactionQueue:
         self.add(transaction)
     
     def add_delayed(self, transaction: Transaction, delay_seconds: int = 60) -> None:
+        transaction.delay_until = datetime.now() + timedelta(seconds=delay_seconds)
         transaction.mark_delayed()
         self._delayed.append(transaction)
+    
+    def check_delayed(self) -> None:
+        """Проверяет отложенные транзакции и перемещает их в pending"""
+        now = datetime.now()
+        ready = []
+        for transaction in self._delayed[:]:
+            if transaction.delay_until and now >= transaction.delay_until:
+                self._delayed.remove(transaction)
+                transaction.status = TransactionStatus.PENDING
+                self._pending.append(transaction)
+                ready.append(transaction)
+        if ready:
+            self._pending.sort(key=lambda t: t.priority.value, reverse=True)
     
     def get_next(self) -> Optional[Transaction]:
         if not self._pending:

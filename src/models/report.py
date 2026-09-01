@@ -325,6 +325,29 @@ class ReportBuilder:
         lines.append("=" * 70)
         return "\n".join(lines)
     
+    def _risk_to_csv(self) -> str:
+        """Экспорт отчёта по рискам в CSV"""
+        import io
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        writer.writerow(['Тип отчёта', 'Риски'])
+        writer.writerow(['ОТЧЁТ ПО РИСКАМ', ''])
+        writer.writerow([])
+        writer.writerow(['Время', 'Клиент', 'Уровень риска', 'Сумма', 'Причины'])
+        
+        suspicious = self.risk_analyzer.get_suspicious_operations() if self.risk_analyzer else []
+        for op in suspicious:
+            writer.writerow([
+                op.get('timestamp', ''),
+                op.get('client_id', ''),
+                op.get('risk_level', ''),
+                op.get('amount', 0),
+                ', '.join(op.get('reasons', []))
+            ])
+        
+        return output.getvalue()
+    
     def generate_transactions_report(self, format_type: str = ReportFormat.TEXT) -> str:
         if not self.processor:
             return "Ошибка: обработчик транзакций не подключён"
@@ -390,13 +413,17 @@ class ReportBuilder:
     def _to_json(self, data: Dict[str, Any]) -> str:
         return json.dumps(data, ensure_ascii=False, indent=2)
     
-    def export_to_json(self, report_type: str, filename: Optional[str] = None) -> str:
+    def export_to_json(self, report_type: str, filename: Optional[str] = None, client_id: Optional[str] = None) -> str:
         if not filename:
             filename = f"{report_type}_{self._get_timestamp()}.json"
         
         filepath = os.path.join(self._reports_dir, filename)
         
-        if report_type == ReportType.BANK:
+        if report_type == ReportType.CLIENT:
+            if not client_id:
+                return "Ошибка: для клиентского отчёта укажите client_id"
+            content = self.generate_client_report(client_id, ReportFormat.JSON)
+        elif report_type == ReportType.BANK:
             content = self.generate_bank_report(ReportFormat.JSON)
         elif report_type == ReportType.RISK:
             content = self.generate_risk_report(ReportFormat.JSON)
@@ -427,6 +454,8 @@ class ReportBuilder:
         
         if report_type == ReportType.BANK:
             content = self.generate_bank_report(ReportFormat.CSV)
+        elif report_type == ReportType.RISK:
+            content = self._risk_to_csv()
         else:
             return f"CSV экспорт для {report_type} не поддерживается"
         
