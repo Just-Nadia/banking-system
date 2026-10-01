@@ -160,6 +160,10 @@ class RiskAnalyzer:
                 'amount': transaction.amount
             })
         
+        # Обновляем риск-профиль клиента по результатам анализа
+        if client_id:
+            self.update_client_risk_profile(client_id, risk_level)
+        
         return risk_level, reasons
     
     def update_client_risk_profile(self, client_id: str, risk_level: RiskLevel) -> None:
@@ -193,7 +197,8 @@ class RiskAnalyzer:
     ) -> Tuple[bool, List[str]]:
         risk_level, reasons = self.analyze_transaction(transaction, accounts, client_id)
         
-        if risk_level == RiskLevel.CRITICAL:
+        # Блокируем опасные операции (HIGH и CRITICAL)
+        if risk_level in (RiskLevel.HIGH, RiskLevel.CRITICAL):
             self._log(
                 LogLevel.CRITICAL,
                 f"ОПЕРАЦИЯ ЗАБЛОКИРОВАНА: {transaction.transaction_id}",
@@ -206,6 +211,7 @@ class RiskAnalyzer:
             )
             return True, reasons
         
+        # Профиль клиента — отчётная сущность; блокируем только критический
         if client_id:
             client_risk = self.get_client_risk_profile(client_id)
             if client_risk == RiskLevel.CRITICAL:

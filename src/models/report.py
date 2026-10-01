@@ -288,6 +288,8 @@ class ReportBuilder:
         
         if format_type == ReportFormat.JSON:
             return self._to_json(data)
+        elif format_type == ReportFormat.CSV:
+            return self._risk_to_csv(data)
         else:
             return self._risk_to_text(data)
     
@@ -325,24 +327,20 @@ class ReportBuilder:
         lines.append("=" * 70)
         return "\n".join(lines)
     
-    def _risk_to_csv(self) -> str:
+    def _risk_to_csv(self, data: Dict[str, Any]) -> str:
         """Экспорт отчёта по рискам в CSV"""
         import io
         output = io.StringIO()
         writer = csv.writer(output)
         
-        writer.writerow(['Тип отчёта', 'Риски'])
-        writer.writerow(['ОТЧЁТ ПО РИСКАМ', ''])
-        writer.writerow([])
-        writer.writerow(['Время', 'Клиент', 'Уровень риска', 'Сумма', 'Причины'])
-        
-        suspicious = self.risk_analyzer.get_suspicious_operations() if self.risk_analyzer else []
-        for op in suspicious:
+        writer.writerow(['timestamp', 'client_id', 'risk_level', 'amount', 'currency', 'reasons'])
+        for op in data.get('suspicious_operations', []):
             writer.writerow([
                 op.get('timestamp', ''),
                 op.get('client_id', ''),
                 op.get('risk_level', ''),
                 op.get('amount', 0),
+                op.get('currency', ''),
                 ', '.join(op.get('reasons', []))
             ])
         
@@ -446,7 +444,7 @@ class ReportBuilder:
         
         return filepath
     
-    def export_to_csv(self, report_type: str, filename: Optional[str] = None) -> str:
+    def export_to_csv(self, report_type: str, filename: Optional[str] = None, client_id: Optional[str] = None) -> str:
         if not filename:
             filename = f"{report_type}_{self._get_timestamp()}.csv"
         
@@ -455,7 +453,11 @@ class ReportBuilder:
         if report_type == ReportType.BANK:
             content = self.generate_bank_report(ReportFormat.CSV)
         elif report_type == ReportType.RISK:
-            content = self._risk_to_csv()
+            content = self.generate_risk_report(ReportFormat.CSV)
+        elif report_type == ReportType.CLIENT:
+            if not client_id:
+                return "Ошибка: для клиентского отчёта укажите client_id"
+            content = self.generate_client_report(client_id, ReportFormat.CSV)
         else:
             return f"CSV экспорт для {report_type} не поддерживается"
         

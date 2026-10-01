@@ -447,6 +447,26 @@ class InvestmentAccount(BankAccount):
             sum(self._stocks) + sum(self._bonds) + sum(self._etf)
         )
     
+    def withdraw(self, amount: float) -> float:
+        """Снятие с инвестиционного счёта (свободные денежные средства)"""
+        self._validate_amount(amount)
+        self._check_status()
+        self._ensure_sufficient_funds(amount)
+        
+        new_balance = self._balance - amount
+        if new_balance < 0:
+            raise InvalidOperationError("Баланс не может быть отрицательным")
+        self._set_balance(new_balance)
+        
+        self._transaction_history.append({
+            'type': 'withdraw',
+            'amount': amount,
+            'balance_after': new_balance,
+            'timestamp': datetime.now()
+        })
+        
+        return new_balance
+    
     def add_stock(self, value: float) -> None:
         self._validate_amount(value)
         self._stocks.append(value)

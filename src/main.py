@@ -59,8 +59,8 @@ def main():
     risk_analyzer = RiskAnalyzer(audit)
     print(f"  Создан анализатор рисков")
     
-    # Создаём обработчик транзакций
-    processor = TransactionProcessor()
+    # Создаём обработчик транзакций (с анализатором рисков)
+    processor = TransactionProcessor(risk_analyzer=risk_analyzer)
     print(f"  Создан обработчик транзакций")
     
     # ============================================================
@@ -218,22 +218,20 @@ def main():
         else:
             priority = TransactionPriority.NORMAL
         
-        # Проверка риска
+        # Определяем клиента-владельца счёта, который реально фигурирует
+        # в транзакции (для депозита — получатель, для остальных — отправитель)
+        target_account = tx.sender or tx.receiver
         client_id = None
         for client in clients:
-            if sender_id in client.account_ids:
+            if target_account in client.account_ids:
                 client_id = client.client_id
                 break
         
-        blocked, reasons = risk_analyzer.is_operation_blocked(tx, accounts, client_id)
+        # Сохраняем client_id в транзакции — процессор использует его
+        # для обновления риск-профиля и блокировки
+        tx.client_id = client_id
         
-        if blocked:
-            tx.mark_failed(f"Заблокировано: {', '.join(reasons)}")
-            transactions.append(tx)
-            print(f"  БЛОКИРОВАНА: {tx.transaction_id[:6]}... -> {reasons[0] if reasons else 'Неизвестная причина'}")
-            continue
-        
-        # Добавляем в очередь
+        # Добавляем в очередь (блокировка риска произойдёт в process_next)
         delay = 0
         if i % 8 == 0:
             delay = 30

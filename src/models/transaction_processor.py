@@ -34,10 +34,24 @@ class TransactionProcessor:
     EXCHANGE_RATES = {
         ('RUB', 'USD'): 0.011,
         ('RUB', 'EUR'): 0.010,
+        ('RUB', 'KZT'): 5.5,
+        ('RUB', 'CNY'): 0.08,
         ('USD', 'RUB'): 90.0,
-        ('EUR', 'RUB'): 100.0,
         ('USD', 'EUR'): 0.92,
+        ('USD', 'KZT'): 500.0,
+        ('USD', 'CNY'): 7.25,
+        ('EUR', 'RUB'): 100.0,
         ('EUR', 'USD'): 1.09,
+        ('EUR', 'KZT'): 545.0,
+        ('EUR', 'CNY'): 7.9,
+        ('KZT', 'RUB'): 0.182,
+        ('KZT', 'USD'): 0.002,
+        ('KZT', 'EUR'): 0.00183,
+        ('KZT', 'CNY'): 0.0145,
+        ('CNY', 'RUB'): 12.5,
+        ('CNY', 'USD'): 0.138,
+        ('CNY', 'EUR'): 0.1266,
+        ('CNY', 'KZT'): 69.0,
     }
     
     def __init__(self, risk_analyzer=None):
@@ -103,9 +117,11 @@ class TransactionProcessor:
         if not transaction:
             return None
         
-        # Проверка риска
+        # Проверка риска (client_id берём из самой транзакции)
         if self._risk_analyzer:
-            blocked, reasons = self._risk_analyzer.is_operation_blocked(transaction, accounts)
+            blocked, reasons = self._risk_analyzer.is_operation_blocked(
+                transaction, accounts, transaction.client_id
+            )
             if blocked:
                 error_msg = f"Транзакция заблокирована: {', '.join(reasons)}"
                 self._errors.append(error_msg)
@@ -124,7 +140,7 @@ class TransactionProcessor:
             
             if transaction.can_retry():
                 transaction.increment_retry()
-                self._queue.add(transaction)
+                self._queue.requeue(transaction)
             else:
                 self._queue.fail(transaction, str(e))
             
@@ -192,22 +208,22 @@ class TransactionProcessor:
         # Проверка статуса получателя
         receiver._check_status()
         
-        # Конвертация суммы
+        # Конвертация суммы для отправителя
         amount = self._convert_currency(transaction.amount, transaction.currency, sender.currency.value)
         commission = self._calculate_commission(transaction, sender)
         commission_converted = self._convert_currency(commission, transaction.currency, sender.currency.value)
         total = amount + commission_converted
+        
+        # Конвертация суммы для получателя ДО списания с отправителя
+        amount_receiver = self._convert_currency(transaction.amount, transaction.currency, receiver.currency.value)
         
         # Проверка достаточности средств
         if not isinstance(sender, PremiumAccount):
             if total > sender.balance:
                 raise InsufficientFundsError(sender.account_id, total, sender.balance)
         
-        # Все проверки пройдены → списываем
+        # Все проверки и конвертации пройдены → списываем
         sender.withdraw(total)
-        
-        # Конвертируем для получателя
-        amount_receiver = self._convert_currency(transaction.amount, transaction.currency, receiver.currency.value)
         
         # Зачисляем получателю
         receiver.deposit(amount_receiver)
@@ -230,15 +246,9 @@ class TransactionProcessor:
         return processed
     
     def retry_failed(self, accounts: Dict[str, AbstractAccount]) -> List[Transaction]:
-        retryable = self._queue.retry_failed()
-        processed = []
-        
-        for transaction in retryable:
-            result = self.process_next(accounts)
-            if result:
-                processed.append(result)
-        
-        return processed
+        # Возвращаем неудачные транзакции в _pending и обрабатываем очередь целиком
+        self._queue.retry_failed()
+        return self.process_all(accounts)
     
     def get_statistics(self) -> dict:
         return {

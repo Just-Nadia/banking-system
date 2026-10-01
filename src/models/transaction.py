@@ -44,6 +44,7 @@ class Transaction:
     fee: float = 0.0
     sender: Optional[str] = None
     receiver: Optional[str] = None
+    client_id: Optional[str] = None
     status: TransactionStatus = TransactionStatus.PENDING
     priority: TransactionPriority = TransactionPriority.NORMAL
     fail_reason: Optional[str] = None
@@ -82,10 +83,7 @@ class Transaction:
         self.updated_at = datetime.now()
     
     def can_retry(self) -> bool:
-        return self.retry_count < self.max_retries and self.status in [
-            TransactionStatus.FAILED,
-            TransactionStatus.DELAYED
-        ]
+        return self.retry_count < self.max_retries
     
     def __str__(self) -> str:
         return (
@@ -177,6 +175,14 @@ class TransactionQueue:
             self._processing.remove(transaction)
         transaction.mark_failed(reason)
         self._failed.append(transaction)
+    
+    def requeue(self, transaction: Transaction) -> None:
+        """Вернуть транзакцию из processing в pending для повторной попытки."""
+        if transaction in self._processing:
+            self._processing.remove(transaction)
+        transaction.status = TransactionStatus.PENDING
+        transaction.updated_at = datetime.now()
+        self.add(transaction)
     
     def cancel(self, transaction: Transaction) -> None:
         if transaction in self._pending:
